@@ -41,6 +41,11 @@ class cell_processing():
         self.couple_arg = []
         self.fitrange = [0, 400]
         self.spring_constant = 0
+        self.log={'methods':{},
+                  'result':{
+                      'keep':{},
+                      'discard':{},
+                  }}
 
     def GetFileName(self, suffix='txt'):
         for a, b, c in os.walk(self.filedir):
@@ -153,3 +158,4 @@ class cell_processing():
         plt.show()
         plt.close()
 
+if __name__ == '__main__':
