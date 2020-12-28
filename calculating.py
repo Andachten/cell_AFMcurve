@@ -21,34 +21,49 @@ def smoothing(data):
     return smoothed
 
 
-def ppdistance(p1, p2):
-    x1, y1 = p1
-    x2, y2 = p2
-    d = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
-    return d
+def curve_rotate(data, point, sita):
+    x0, y0 = point
+    data[:, 0] = (data[:, 0] - y0) * np.cos(sita) + (data[:, 1] - x0) * np.sin(sita)
+    return data
 
 
 def linearfunc(x, k, b):
     return k * x + b
-
+def lrfitting(data,peakcouple,fitrange):
+    couple_arg = []
+    for i0, i1 in enumerate(peakcouple):
+        i, ii = i1
+        peakrange = np.array([x for x in range(i - fitrange[0], i + 1)])
+        bottrange = np.array([x for x in range(ii, ii + fitrange[1])])
+        if ii + fitrange[1] > len(data[:, 0]):
+            bottrange = np.array([x for x in range(ii, len(data[:, 0]))])
+        if i0 + 1 < len(peakcouple) and ii + fitrange[1] > peakcouple[i0 + 1][0]:
+            bottrange = np.array([x for x in range(ii, peakcouple[i0 + 1][0])])
+        try:
+            popt_p, _ = curve_fit(linearfunc, data[:, 1][peakrange], data[:, 0][peakrange])
+            popt_b, _ = curve_fit(linearfunc, data[:, 1][bottrange], data[:, 0][bottrange])
+        except:
+            popt_p = [0, 0]
+            popt_b = [0, 0]
+        couple_arg.append((popt_p, popt_b))
+    return couple_arg
 
 class cell_processing():
-    def __init__(self, filedir):
-        self.filedir = filedir
+    def __init__(self):
         self.data = []
         self.filename_lst = []
         self.couple = []
         self.couple_arg = []
-        self.fitrange = [0, 400]
         self.spring_constant = 0
-        self.log={'methods':{},
+        self.log={'methods':{'src':r'E:\ZB\cell\20200929-ACE2-RBD\map-data-2020.09.29-18.14.05.322_processed-2020.12.28-16.42.19\processed_curves-2020.12.28-16.42.19',
+                             'fitrange':[60,400]},
                   'result':{
                       'keep':{},
-                      'discard':{},
+                      'discard':[],
                   }}
 
     def GetFileName(self, suffix='txt'):
-        for a, b, c in os.walk(self.filedir):
+        for a, b, c in os.walk(self.log['methods']['src']):
             for i in c:
                 if i.endswith(suffix):
                     self.filename_lst.append(os.path.join(a, i))
@@ -80,82 +95,92 @@ class cell_processing():
         else:
             return False, 'index out of range'
 
-    def lrfitting(self):
-        data = self.data
-        couple_arg = []
-        for i0, i1 in enumerate(self.couple):
-            i, ii = i1
-            peakrange = np.array([x for x in range(i - 60, i + 1)])
-            bottrange = np.array([x for x in range(ii, ii + self.fitrange[1])])
-            if ii + self.fitrange[1] > len(self.data[:, 0]):
-                bottrange = np.array([x for x in range(ii, len(self.data[:, 0]))])
-            if i0 + 1 < len(self.couple) and ii + self.fitrange[1] > self.couple[i0 + 1][0]:
-                bottrange = np.array([x for x in range(ii, self.couple[i0 + 1][0])])
-            try:
-                popt_p, _ = curve_fit(linearfunc, data[:, 1][peakrange], data[:, 0][peakrange])
-                popt_b, _ = curve_fit(linearfunc, data[:, 1][bottrange], data[:, 0][bottrange])
-            except:
-                popt_p = [0, 0]
-                popt_b = [0, 0]
-            couple_arg.append((popt_p, popt_b))
-        self.couple_arg = couple_arg
 
-    def curve_rotate(self, point, sita):
-        x0, y0 = point
-        self.data[:, 0] = (self.data[:, 0] - y0) * np.cos(sita) + (self.data[:, 1] - x0) * np.sin(sita)
-        return self.data
 
-    def findkneed(self, index, pkrange=[10, 70]):
-        self.GetFileName()
+    def findkneed(self, index):
         data = self.GetData(index)[1]
-        self.data = data
         dataAftersmooth = smoothing(data)
         bott, _ = signal.find_peaks(np.gradient(np.gradient(dataAftersmooth)), height=0.012, distance=80,
                                     prominence=0.015)
         peak, _ = signal.find_peaks(np.gradient(np.gradient(dataAftersmooth)) * -1, height=0.008, distance=80,
                                     prominence=0.01)
         couple = []
+        for _,i in enumerate(peak):
+            try:
+                peak[_]=np.arange(i-10,i+11)[np.argmax(data[:,0][np.arange(i-10,i+11)])]
+            except:
+                pass
+
         for i in peak:
             if len(np.abs(data[:, 1][i] - data[:, 1][bott])) == 0:
                 continue
             ii = bott[np.argmin(np.abs(data[:, 1][i] - data[:, 1][bott]))]
             if ii - i < 50 and data[:, 0][i] > data[:, 0][ii] + 15 and ii > i:
                 couple.append((i, ii))
-        self.couple = couple
-        self.lrfitting()
-
-        fig = plt.figure()
-        bx = fig.add_subplot(211)
-        bx.plot(data[:, 1], data[:, 0])
-        for i, ii in enumerate(couple):
-            bx.plot(data[:, 1][ii[0]], data[:, 0][ii[0]], 'ro')
-            x_ = np.arange(data[:, 1][ii[0]] - 200, data[:, 1][ii[0]], 0.1)
-            y_ = linearfunc(x_, *self.couple_arg[i][0])
-            bx.plot(x_, y_, '-.', color='r', linewidth=2)
-            bx.plot(data[:, 1][ii[1]], data[:, 0][ii[1]], 'o', color='purple')
-            x_ = np.arange(data[:, 1][ii[1]], data[:, 1][ii[1]] + 400, 0.1)
-            y_ = linearfunc(x_, *self.couple_arg[i][1])
-            bx.plot(x_, y_, '-.', color='purple', linewidth=2)
-
-        if len(self.couple) == 0:
+        if len(couple) == 0:
+            self.log['result']['discard'].append(self.filename_lst[index])
             return False
-        sita = np.arctan(self.couple_arg[0][1][0])
-        data = self.curve_rotate(point=(data[:, 1][self.couple[0][1]], data[:, 0][self.couple[0][1]]), sita=sita * -1)
-        self.lrfitting()
-
-        ax = fig.add_subplot(212)
-        ax.plot(data[:, 1], data[:, 0])
-        for i, ii in enumerate(couple):
-            ax.plot(data[:, 1][ii[0]], data[:, 0][ii[0]], 'ro')
-            x_ = np.arange(data[:, 1][ii[0]] - 200, data[:, 1][ii[0]], 0.1)
-            y_ = linearfunc(x_, *self.couple_arg[i][0])
-            ax.plot(x_, y_, '-.', color='r', linewidth=2)
-            ax.plot(data[:, 1][ii[1]], data[:, 0][ii[1]], 'o', color='purple')
-            x_ = np.arange(data[:, 1][ii[1]], data[:, 1][ii[1]] + 400, 0.1)
-            y_ = linearfunc(x_, *self.couple_arg[i][1])
-            ax.plot(x_, y_, '-.', color='purple', linewidth=2)
-        fig.savefig(str(time.time()) + str(random.randint(1, 9)) + '.jpg', dpi=100)
-        plt.show()
+        couple_arg = lrfitting(data,couple,self.log['methods']['fitrange'])
+        theta = np.arctan(couple_arg[0][1][0]) * -1
+        point = (data[:, 1][couple[0][1]], data[:, 0][couple[0][1]])
+        data = curve_rotate(data, point, theta)
+        couple_arg = lrfitting(data, couple, self.log['methods']['fitrange'])
+        self.log['result']['keep'][self.filename_lst[index]]={}
+        self.log['result']['keep'][self.filename_lst[index]]['index']=index
+        for i,arg in enumerate(couple_arg):
+            self.log['result']['keep'][self.filename_lst[index]]['theta'] = theta
+            self.log['result']['keep'][self.filename_lst[index]]['peakindex']=couple[i][0]
+            self.log['result']['keep'][self.filename_lst[index]]['peak_k'] = couple_arg[i][0][0]
+            self.log['result']['keep'][self.filename_lst[index]]['peak_b'] = couple_arg[i][0][1]
+            self.log['result']['keep'][self.filename_lst[index]]['bottindex'] = couple[i][1]
+            self.log['result']['keep'][self.filename_lst[index]]['bott_k'] = couple_arg[i][1][0]
+            self.log['result']['keep'][self.filename_lst[index]]['bott_b'] = couple_arg[i][1][1]
+            break
+        return True
+    def run(self):
+        import time
+        self.GetFileName()
+        t1 = time.time()
+        for i,_ in enumerate(self.filename_lst):
+            if self.findkneed(i):
+                print('success')
+            else:
+                print('failed')
+            print('Num.{}/Total.{}'.format(i,len(self.filename_lst)))
+        t2=time.time()
+        print('Average time.{}s\nTotal time.{}s'.format((t2-t1)/(i+1),t2-t1))
+    def graph(self,filename):
+        index = self.filename_lst.index(filename)
+        data = self.GetData(index)[1]
+        dic = self.log['result']['keep'][filename]
+        peak_index = dic['peakindex']
+        peak_k = dic['peak_k']
+        peak_b = dic['peak_b']
+        bott_index = dic['bottindex']
+        bott_k = dic['bott_k']
+        bott_b = dic['bott_b']
+        theta = dic['theta']
+        point = data[:,1][bott_index],data[:,0][bott_index]
+        data = curve_rotate(data, point, theta)
+        data[:,0] = data[:,0]-bott_b
+        peak_b = peak_b - bott_b
+        bott_b = 0
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.plot(data[:,1],data[:,0])
+        print(peak_index)
+        ax.plot(data[:,1][peak_index],data[:,0][peak_index],'ro')
+        ax.plot(data[:, 1][bott_index], data[:, 0][bott_index], 'o',color='purple')
+        x_ = np.arange(data[:, 1][peak_index] - 200, data[:, 1][peak_index], 0.1)
+        y_ = linearfunc(x_, peak_k,peak_b)
+        ax.plot(x_,y_,'-.')
+        x_ = np.arange(data[:, 1][bott_index], data[:, 1][bott_index]+200, 0.1)
+        y_ = linearfunc(x_, bott_k, bott_b)
+        ax.plot(x_, y_, '-.')
         plt.close()
-
-if __name__ == '__main__':
+        return fig
+'''
+if __name__=='__main__':
+    cp = cell_processing()
+    cp.run()
+    '''
